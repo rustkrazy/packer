@@ -37,7 +37,8 @@ fn device_size(file: &std::fs::File, path: String) -> anyhow::Result<u64> {
 
 fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow::Result<()> {
     const NOPART: &[u8] = &[0; 16];
-    const BOOTABLE: &[u8] = &[0x80];
+    const INACTIVE: &[u8] = &[0x00];
+    const ACTIVE: &[u8] = &[0x80];
     const INVALID_CHS: &[u8] = &[0xFF, 0xFF, 0xFE]; // Causes sector values to be used
     const FAT: &[u8] = &[0xc];
     const SIGNATURE: &[u8] = &[0x55, 0xAA];
@@ -50,7 +51,7 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
     file.write_all(&[0; 446])?; // Boot code
 
     // Partition 1
-    file.write_all(BOOTABLE)?;
+    file.write_all(ACTIVE)?;
     file.write_all(INVALID_CHS)?;
     file.write_all(FAT)?;
     file.write_all(INVALID_CHS)?;
