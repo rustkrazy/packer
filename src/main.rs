@@ -76,6 +76,7 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
 
     file.write_all(SIGNATURE)?;
 
+    println!("Partition table written successfully");
     Ok(())
 }
 
