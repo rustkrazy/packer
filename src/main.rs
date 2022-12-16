@@ -13,7 +13,7 @@ struct Args {
     /// Output location of a full image.
     #[arg(short = 'o', long = "overwrite")]
     overwrite: String,
-    /// Size of image file. Used if --overwrite is a file.
+    /// Size of image file in bytes. Used if --overwrite is a file.
     #[arg(short = 'n', long = "size")]
     size: Option<u64>,
 }
