@@ -42,6 +42,7 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
     const INVALID_CHS: &[u8] = &[0xFF, 0xFF, 0xFE]; // Causes sector values to be used
     const FAT: &[u8] = &[0xc];
     const LINUX: &[u8] = &[0x83];
+    const SQUASHFS: &[u8] = LINUX;
     const SIGNATURE: &[u8] = &[0x55, 0xAA];
 
     #[allow(non_upper_case_globals)]
@@ -62,7 +63,7 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
     // Partition 2 rootfs
     file.write_all(INACTIVE)?;
     file.write_all(INVALID_CHS)?;
-    file.write_all(LINUX)?;
+    file.write_all(SQUASHFS)?;
     file.write_all(INVALID_CHS)?;
     file.write_all(&(2048 + 256 * MiB / 512).to_le_bytes())?;
     file.write_all(&(dev_size as u32 / 512 - 8192 - 256 * MiB / 512).to_le_bytes())?;
