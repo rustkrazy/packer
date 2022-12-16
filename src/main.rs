@@ -2,7 +2,10 @@ use anyhow::bail;
 use clap::Parser;
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
+
+const MODE_DEVICE: u32 = 1 << 14;
 
 #[derive(Debug, Parser)]
 #[command(author = "The Rustkrazy Authors", version = "v0.1.0", about = "Generate a rustkrazy image.", long_about = None)]
@@ -10,6 +13,9 @@ struct Args {
     /// Output location of a full image.
     #[arg(short = 'o', long = "overwrite")]
     overwrite: String,
+    /// Size of image file. Used if --overwrite is a file.
+    #[arg(short = 'n', long = "size")]
+    size: Option<u64>,
 }
 
 #[cfg(target_os = "linux")]
@@ -86,21 +92,34 @@ fn partition(file: &mut std::fs::File, dev_size: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn partition_device(overwrite: String) -> anyhow::Result<()> {
-    let mut file = File::create(overwrite.clone())?;
-
-    let dev_size = device_size(&file, overwrite)?;
+fn partition_device(file: &mut std::fs::File, overwrite: String) -> anyhow::Result<()> {
+    let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
-    partition(&mut file, dev_size)?;
+    partition(file, dev_size)?;
 
     Ok(())
+}
+
+fn overwrite_device(file: &mut std::fs::File, overwrite: String) -> anyhow::Result<()> {
+    partition_device(file, overwrite)
+}
+
+fn overwrite_file(file: &mut std::fs::File, file_size: u64) -> anyhow::Result<()> {
+    partition(file, file_size)
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    partition_device(args.overwrite)?;
+    let mut file = File::create(args.overwrite.clone())?;
 
-    Ok(())
+    if file.metadata()?.permissions().mode() & MODE_DEVICE != 0 {
+        overwrite_device(&mut file, args.overwrite)
+    } else {
+        match args.size {
+            Some(v) => overwrite_file(&mut file, v),
+            None => bail!("Files require --size to be specified"),
+        }
+    }
 }
