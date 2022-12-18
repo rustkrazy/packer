@@ -1,11 +1,19 @@
 use anyhow::bail;
 use clap::Parser;
-use std::fs::File;
-use std::io::Write;
+use fatfs::{FatType, FormatVolumeOptions};
+use fscommon::StreamSlice;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
+use std::path::Path;
 
 const MODE_DEVICE: u32 = 1 << 14;
+
+#[allow(non_upper_case_globals)]
+const KiB: u32 = 1024;
+#[allow(non_upper_case_globals)]
+const MiB: u32 = 1024 * KiB;
 
 #[derive(Debug, Parser)]
 #[command(author = "The Rustkrazy Authors", version = "v0.1.0", about = "Generate a rustkrazy image.", long_about = None)]
@@ -19,7 +27,7 @@ struct Args {
 }
 
 #[cfg(target_os = "linux")]
-fn device_size(file: &std::fs::File, path: String) -> anyhow::Result<u64> {
+fn device_size(file: &File, path: String) -> anyhow::Result<u64> {
     use nix::ioctl_read;
 
     const BLKGETSIZE64_CODE: u8 = 0x12;
@@ -41,7 +49,7 @@ fn device_size(file: &std::fs::File, path: String) -> anyhow::Result<u64> {
     Ok(dev_size)
 }
 
-fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow::Result<()> {
+fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
     const NOPART: &[u8] = &[0; 16];
     const INACTIVE: &[u8] = &[0x00];
     const ACTIVE: &[u8] = &[0x80];
@@ -50,11 +58,6 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
     const LINUX: &[u8] = &[0x83];
     const SQUASHFS: &[u8] = LINUX;
     const SIGNATURE: &[u8] = &[0x55, 0xAA];
-
-    #[allow(non_upper_case_globals)]
-    const KiB: u32 = 1024;
-    #[allow(non_upper_case_globals)]
-    const MiB: u32 = 1024 * KiB;
 
     file.write_all(&[0; 446])?; // Boot code
 
@@ -86,13 +89,13 @@ fn write_mbr_partition_table(file: &mut std::fs::File, dev_size: u64) -> anyhow:
     Ok(())
 }
 
-fn partition(file: &mut std::fs::File, dev_size: u64) -> anyhow::Result<()> {
+fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
     write_mbr_partition_table(file, dev_size)?;
 
     Ok(())
 }
 
-fn partition_device(file: &mut std::fs::File, overwrite: String) -> anyhow::Result<()> {
+fn partition_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
@@ -101,18 +104,58 @@ fn partition_device(file: &mut std::fs::File, overwrite: String) -> anyhow::Resu
     Ok(())
 }
 
-fn overwrite_device(file: &mut std::fs::File, overwrite: String) -> anyhow::Result<()> {
-    partition_device(file, overwrite)
+fn copy_file(dst: &mut fatfs::File<StreamSlice<&mut File>>, src: &mut File) -> anyhow::Result<()> {
+    let mut buf = Vec::new();
+
+    src.read_to_end(&mut buf)?;
+    dst.write_all(&buf)?;
+
+    Ok(())
 }
 
-fn overwrite_file(file: &mut std::fs::File, file_size: u64) -> anyhow::Result<()> {
-    partition(file, file_size)
+fn write_boot(mut partition: fscommon::StreamSlice<&mut File>) -> anyhow::Result<()> {
+    let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
+
+    fatfs::format_volume(&mut partition, format_opts)?;
+
+    let kernel_dir = Path::new(".");
+
+    let fs = fatfs::FileSystem::new(partition, fatfs::FsOptions::new())?;
+    let root_dir = fs.root_dir();
+
+    let mut kernel = root_dir.create_file("vmlinuz")?;
+    copy_file(&mut kernel, &mut File::open(kernel_dir.join("vmlinuz"))?)?;
+
+    println!("Boot filesystem created successfully");
+    Ok(())
+}
+
+fn overwrite_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
+    partition_device(file, overwrite)?;
+
+    let boot_partition = StreamSlice::new(file, 2048 * 512, (2048 * 512 + 256 * MiB - 1).into())?;
+    write_boot(boot_partition)?;
+
+    Ok(())
+}
+
+fn overwrite_file(file: &mut File, file_size: u64) -> anyhow::Result<()> {
+    partition(file, file_size)?;
+
+    let boot_partition = StreamSlice::new(file, 2048 * 512, (2048 * 512 + 256 * MiB - 1).into())?;
+    write_boot(boot_partition)?;
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let mut file = File::create(args.overwrite.clone())?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(args.overwrite.clone())?;
 
     if file.metadata()?.permissions().mode() & MODE_DEVICE != 0 {
         overwrite_device(&mut file, args.overwrite)
