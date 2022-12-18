@@ -48,6 +48,14 @@ org	0x7c00
 	mov	es, ax
 	sti
 
+read_cmdline:
+
+	mov eax, 0x0001			; load one sector
+	xor bx, bx				; no offset
+	mov cx, 0x1e00			; load Kernel command line at 0x1e000
+	mov esi, cmd_lba
+	call    read_from_hdd
+
 read_kernel_bootsector:
 
 	mov	eax, 0x0001			; load one sector
@@ -83,10 +91,6 @@ set_header_fields:
 	mov	byte [es:0x227], 0x01		; set ext_loader_type (bootloader id: 0x11)
 	mov	dword [es:0x228], 0x1e000	; set cmd_line_ptr
 	cld					; copy cmd_line
-	mov	si, cmd_line
-	mov	di, 0xe000
-	mov	cx, cmd_length
-	rep	movsb
 
 read_protected_mode_kernel:
 
@@ -118,6 +122,7 @@ read_protected_mode_kernel_2:
 .next:
 	xor	bx, bx
 	mov	cx, 0x2000
+	mov esi, current_lba
 	call	read_from_hdd
 	mov	ecx, edx
 	shr	ecx, 1
@@ -135,15 +140,20 @@ run_kernel:
 	mov	sp, 0xe000
 	jmp	0x1020:0
 
+	;;	read_from_hdd:
+	;;		ax: count in 512-byte sectors [1, 127]
+	;;		bx: destination: offset
+	;;		cx: destination: segment
+	;;		esi: lba pointer (typically current_lba)
 read_from_hdd:
 
 	push	edx
 	mov	[dap.count], ax
 	mov	[dap.offset], bx
 	mov	[dap.segment], cx
-	mov	edx, [current_lba]
+	mov	edx, [esi]
 	mov	[dap.lba], edx
-	add	[current_lba], eax		; update current_lba
+	add	[esi], eax			; update current_lba
 	mov	ah, 0x42
 	mov	si, dap
 	mov	dl, 0x80			; first hard disk
@@ -222,10 +232,7 @@ dap:
 	dd	0				; low bytes of LBA address
 	dd	0				; high bytes of LBA address
 
-current_lba	dd	7620608			; initialize to first LBA address
-cmd_line	db	'root=/dev/sda1', 0
-cmd_length	equ	$ - cmd_line
 error_msg	db	'err', 0		; /* FIXME: newline */
 
-;	times	510-($-$$)	db	0
-;	dw	0xaa55
+current_lba	dd	8218	; initialize to first LBA address
+cmd_lba		dd	8218	; initialize to LBA address of cmdline.txt
