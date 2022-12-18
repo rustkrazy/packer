@@ -123,8 +123,11 @@ fn write_boot(mut partition: fscommon::StreamSlice<&mut File>) -> anyhow::Result
     let fs = fatfs::FileSystem::new(partition, fatfs::FsOptions::new())?;
     let root_dir = fs.root_dir();
 
-    let mut kernel = root_dir.create_file("vmlinuz")?;
-    copy_file(&mut kernel, &mut File::open(kernel_dir.join("vmlinuz"))?)?;
+    let copy = ["vmlinuz", "cmdline.txt"];
+    for path in copy {
+        let mut file = root_dir.create_file(path)?;
+        copy_file(&mut file, &mut File::open(kernel_dir.join(path))?)?;
+    }
 
     println!("Boot filesystem created successfully");
     Ok(())
