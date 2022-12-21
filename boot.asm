@@ -234,5 +234,5 @@ dap:
 
 error_msg	db	'err', 0		; /* FIXME: newline */
 
-current_lba	dd	8218	; initialize to first LBA address
-cmd_lba		dd	8218	; initialize to LBA address of cmdline.txt
+current_lba	dd	10123	; initialize to first LBA address
+cmd_lba		dd	31846	; initialize to LBA address of cmdline.txt

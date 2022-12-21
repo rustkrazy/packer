@@ -3,7 +3,7 @@ use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
@@ -104,7 +104,7 @@ fn partition_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn copy_file(dst: &mut fatfs::File<StreamSlice<&mut File>>, src: &mut File) -> anyhow::Result<()> {
+fn copy_file(dst: &mut fatfs::File<&mut StreamSlice<File>>, src: &mut File) -> anyhow::Result<()> {
     let mut buf = Vec::new();
 
     src.read_to_end(&mut buf)?;
@@ -113,10 +113,10 @@ fn copy_file(dst: &mut fatfs::File<StreamSlice<&mut File>>, src: &mut File) -> a
     Ok(())
 }
 
-fn write_boot(mut partition: fscommon::StreamSlice<&mut File>) -> anyhow::Result<()> {
+fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
 
-    fatfs::format_volume(&mut partition, format_opts)?;
+    fatfs::format_volume(&mut *partition, format_opts)?;
 
     let kernel_dir = Path::new(".");
 
@@ -133,11 +133,59 @@ fn write_boot(mut partition: fscommon::StreamSlice<&mut File>) -> anyhow::Result
     Ok(())
 }
 
+fn write_mbr(file: &mut File) -> anyhow::Result<()> {
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+
+    let kernel_dir = Path::new(".");
+
+    let mut kernel_file = File::open(kernel_dir.join("vmlinuz"))?;
+    let mut kernel_buf = Vec::new();
+    kernel_file.read_to_end(&mut kernel_buf)?;
+
+    let mut cmdline_file = File::open(kernel_dir.join("cmdline.txt"))?;
+    let mut cmdline_buf = Vec::new();
+    cmdline_file.read_to_end(&mut cmdline_buf)?;
+
+    let kernel_offset = buf
+        .windows(kernel_buf.len())
+        .position(|window| window == kernel_buf)
+        .expect("can't find kernel (/vmlinuz) on boot partition");
+    let cmdline_offset = buf
+        .windows(cmdline_buf.len())
+        .position(|window| window == cmdline_buf)
+        .expect("can't find cmdline (/cmdline.txt) on boot partition");
+
+    let kernel_lba = kernel_offset + 2048;
+    let cmdline_lba = cmdline_offset + 2048;
+
+    let mut bootloader_params = Vec::new();
+    bootloader_params.extend_from_slice(&kernel_lba.to_le_bytes());
+    bootloader_params.extend_from_slice(&cmdline_lba.to_le_bytes());
+
+    let mut bootloader_file = File::open("boot.bin")?;
+    let mut bootloader_buf = Vec::new();
+    bootloader_file.read_to_end(&mut bootloader_buf)?;
+    bootloader_buf.resize(432, 0);
+
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&bootloader_buf[..432])?;
+    // file.write_all(&bootloader_params)?;
+
+    Ok(())
+}
+
 fn overwrite_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     partition_device(file, overwrite)?;
 
-    let boot_partition = StreamSlice::new(file, 2048 * 512, (2048 * 512 + 256 * MiB - 1).into())?;
-    write_boot(boot_partition)?;
+    let mut boot_partition = StreamSlice::new(
+        file.try_clone()?,
+        2048 * 512,
+        (2048 * 512 + 256 * MiB - 1).into(),
+    )?;
+
+    write_boot(&mut boot_partition)?;
+    write_mbr(file)?;
 
     Ok(())
 }
@@ -145,8 +193,14 @@ fn overwrite_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
 fn overwrite_file(file: &mut File, file_size: u64) -> anyhow::Result<()> {
     partition(file, file_size)?;
 
-    let boot_partition = StreamSlice::new(file, 2048 * 512, (2048 * 512 + 256 * MiB - 1).into())?;
-    write_boot(boot_partition)?;
+    let mut boot_partition = StreamSlice::new(
+        file.try_clone()?,
+        2048 * 512,
+        (2048 * 512 + 256 * MiB - 1).into(),
+    )?;
+
+    write_boot(&mut boot_partition)?;
+    write_mbr(file)?;
 
     Ok(())
 }
