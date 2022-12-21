@@ -1,0 +1,3 @@
+[task.boot]
+command = "nasm"
+args = ["-f", "bin", "-o", "boot.bin", "boot.asm"]
