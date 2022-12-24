@@ -170,7 +170,7 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
 
     file.seek(SeekFrom::Start(0))?;
     file.write_all(&bootloader_buf[..432])?;
-    // file.write_all(&bootloader_params)?;
+    file.write_all(&bootloader_params)?;
 
     Ok(())
 }
