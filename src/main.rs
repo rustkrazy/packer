@@ -164,7 +164,6 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
     let mut bootloader_params = Vec::new();
     bootloader_params.extend_from_slice(&kernel_lba.to_le_bytes());
     bootloader_params.extend_from_slice(&cmdline_lba.to_le_bytes());
-    eprintln!("{}", bootloader_params.len());
 
     let mut bootloader_file = File::open("boot.bin")?;
     let mut bootloader_buf = Vec::new();
