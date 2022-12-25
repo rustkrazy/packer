@@ -202,9 +202,9 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let mut partition_buf = Vec::new();
     partition.read_to_end(&mut partition_buf)?;
 
-    let tmp_file = temp_file::with_contents(&partition_buf);
+    let tmp_path = temp_file::with_contents(&partition_buf);
 
-    let mut writer = SqsWriter::open(tmp_file.path())?;
+    let mut writer = SqsWriter::open(tmp_path.path())?;
 
     let init_file = File::open("init")?;
     writer.add(SqsSource {
@@ -218,6 +218,13 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     })?;
 
     writer.finish()?;
+
+    let mut tmp_file = File::open(tmp_path.path())?;
+    let mut tmp_buf = Vec::new();
+
+    tmp_file.read_to_end(&mut tmp_buf)?;
+    partition.seek(SeekFrom::Start(0))?;
+    partition.write_all(&tmp_buf)?;
 
     println!("Root filesystem created successfully");
     Ok(())
