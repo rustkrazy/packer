@@ -174,6 +174,10 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
     file.write_all(&bootloader_buf[..432])?;
     file.write_all(&bootloader_params)?;
 
+    println!("MBR written successfully");
+    println!("MBR summary:");
+    println!("  LBA: vmlinuz={}, cmdline.txt={}", kernel_lba, cmdline_lba);
+
     Ok(())
 }
 
