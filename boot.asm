@@ -54,13 +54,14 @@ read_cmdline:
 	xor bx, bx				; no offset
 	mov cx, 0x1e00			; load Kernel command line at 0x1e000
 	mov esi, cmd_lba
-	call    read_from_hdd
+	call	read_from_hdd
 
 read_kernel_bootsector:
 
 	mov	eax, 0x0001			; load one sector
 	xor	bx, bx				; no offset
 	mov	cx, 0x1000			; load Kernel boot sector at 0x10000
+	mov esi, current_lba
 	call	read_from_hdd
 
 read_kernel_setup:
@@ -73,6 +74,7 @@ read_kernel_setup:
 .next:
 	mov	bx, 512				; 512 byte offset
 	mov	cx, 0x1000
+	mov esi, current_lba
 	call	read_from_hdd
 
 check_version:
@@ -104,6 +106,7 @@ read_protected_mode_kernel:
 	mov	eax, 0x7f			; load 127 sectors (maximum)
 	xor	bx, bx				; no offset
 	mov	cx, 0x2000			; load temporary to 0x20000
+	mov esi, current_lba
 	call	read_from_hdd
 	mov	cx, 0x7f00			; move 65024 bytes (127*512 byte)
 	call	do_move
@@ -140,11 +143,11 @@ run_kernel:
 	mov	sp, 0xe000
 	jmp	0x1020:0
 
-	;;	read_from_hdd:
-	;;		ax: count in 512-byte sectors [1, 127]
-	;;		bx: destination: offset
-	;;		cx: destination: segment
-	;;		esi: lba pointer (typically current_lba)
+	;; read_from_hdd:
+	;;   ax: count in 512-byte sectors [1, 127]
+	;;   bx: destination: offset
+	;;   cx: destination: segment
+	;;   esi: lba pointer (typically current_lba)
 read_from_hdd:
 
 	push	edx
@@ -153,7 +156,7 @@ read_from_hdd:
 	mov	[dap.segment], cx
 	mov	edx, [esi]
 	mov	[dap.lba], edx
-	add	[esi], eax			; update current_lba
+	add	[esi], eax		; update current_lba
 	mov	ah, 0x42
 	mov	si, dap
 	mov	dl, 0x80			; first hard disk
@@ -232,7 +235,6 @@ dap:
 	dd	0				; low bytes of LBA address
 	dd	0				; high bytes of LBA address
 
-error_msg	db	'err', 0		; /* FIXME: newline */
-
-current_lba	dd	10123	; initialize to first LBA address
-cmd_lba		dd	31846	; initialize to LBA address of cmdline.txt
+error_msg	db	'er', 0		; /* FIXME: newline */
+current_lba dd	8218			; initialize to first LBA address
+cmd_lba dd	8218				; initialize to LBA address of cmdline.txt
