@@ -11,3 +11,5 @@ clap = { version = "4.0.29", features = ["derive"] }
 fatfs = "0.3.5"
 fscommon = "0.1.1"
 nix = { version = "0.26.1", features = ["ioctl"] }
+squashfs-ng = "0.1.2"
+temp-file = "0.1.7"

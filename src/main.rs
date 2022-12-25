@@ -2,6 +2,8 @@ use anyhow::bail;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
+use squashfs_ng::write::{Source as SqsSource, SourceData as SqsSourceData, Writer as SqsWriter};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -75,7 +77,7 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
     file.write_all(SQUASHFS)?;
     file.write_all(INVALID_CHS)?;
     file.write_all(&(2048 + 256 * MiB / 512).to_le_bytes())?;
-    file.write_all(&(dev_size as u32 / 512 - 8192 - 256 * MiB / 512).to_le_bytes())?;
+    file.write_all(&(dev_size as u32 / 512 - 2048 - 256 * MiB / 512).to_le_bytes())?;
 
     // Partition 3 (unused)
     file.write_all(NOPART)?;
@@ -90,16 +92,18 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
 }
 
 fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
+    const ROOT_START: u64 = (2048 * 512 + 256 * MiB) as u64;
+    let root_end = ROOT_START + (dev_size as u32 - 2048 * 512 - 256 * MiB) as u64;
+
     write_mbr_partition_table(file, dev_size)?;
 
-    let mut boot_partition = StreamSlice::new(
-        file.try_clone()?,
-        2048 * 512,
-        (2048 * 512 + 256 * MiB - 1).into(),
-    )?;
+    let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_START - 1)?;
+    let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
 
     write_boot(&mut boot_partition)?;
     write_mbr(file)?;
+
+    write_root(&mut root_partition)?;
 
     Ok(())
 }
@@ -191,6 +195,31 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
     println!("MBR summary:");
     println!("  LBA: vmlinuz={}, cmdline.txt={}", kernel_lba, cmdline_lba);
 
+    Ok(())
+}
+
+fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
+    let mut partition_buf = Vec::new();
+    partition.read_to_end(&mut partition_buf)?;
+
+    let tmp_file = temp_file::with_contents(&partition_buf);
+
+    let mut writer = SqsWriter::open(tmp_file.path())?;
+
+    let init_file = File::open("init")?;
+    writer.add(SqsSource {
+        data: SqsSourceData::File(Box::new(init_file)),
+        uid: 0,
+        gid: 0,
+        mode: 0o755,
+        modified: 0,
+        xattrs: HashMap::new(),
+        flags: 0,
+    })?;
+
+    writer.finish()?;
+
+    println!("Root filesystem created successfully");
     Ok(())
 }
 
