@@ -92,6 +92,15 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
 fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
     write_mbr_partition_table(file, dev_size)?;
 
+    let mut boot_partition = StreamSlice::new(
+        file.try_clone()?,
+        2048 * 512,
+        (2048 * 512 + 256 * MiB - 1).into(),
+    )?;
+
+    write_boot(&mut boot_partition)?;
+    write_mbr(file)?;
+
     Ok(())
 }
 
@@ -187,31 +196,11 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
 
 fn overwrite_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     partition_device(file, overwrite)?;
-
-    let mut boot_partition = StreamSlice::new(
-        file.try_clone()?,
-        2048 * 512,
-        (2048 * 512 + 256 * MiB - 1).into(),
-    )?;
-
-    write_boot(&mut boot_partition)?;
-    write_mbr(file)?;
-
     Ok(())
 }
 
 fn overwrite_file(file: &mut File, file_size: u64) -> anyhow::Result<()> {
     partition(file, file_size)?;
-
-    let mut boot_partition = StreamSlice::new(
-        file.try_clone()?,
-        2048 * 512,
-        (2048 * 512 + 256 * MiB - 1).into(),
-    )?;
-
-    write_boot(&mut boot_partition)?;
-    write_mbr(file)?;
-
     Ok(())
 }
 
