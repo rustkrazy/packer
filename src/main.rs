@@ -2,13 +2,17 @@ use anyhow::bail;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
-use squashfs_ng::write::{Source as SqsSource, SourceData as SqsSourceData, Writer as SqsWriter};
+use squashfs_ng::write::{
+    Source as SqsSource, SourceData as SqsSourceData, SourceFile as SqsSourceFile,
+    TreeProcessor as SqsTreeProcessor,
+};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const MODE_DEVICE: u32 = 1 << 14;
 
@@ -204,20 +208,54 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
 
     let tmp_path = temp_file::with_contents(&partition_buf);
 
-    let mut writer = SqsWriter::open(tmp_path.path())?;
+    let tree = SqsTreeProcessor::new(tmp_path.path())?;
 
     let init_file = File::open("init")?;
-    writer.add(SqsSource {
-        data: SqsSourceData::File(Box::new(init_file)),
-        uid: 0,
-        gid: 0,
-        mode: 0o755,
-        modified: 0,
-        xattrs: HashMap::new(),
-        flags: 0,
+
+    let init_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/sbin/init"),
+        content: SqsSource {
+            data: SqsSourceData::File(Box::new(init_file)),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
     })?;
 
-    writer.finish()?;
+    let sbin_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/sbin"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(
+                vec![(OsString::from("init"), init_inode)].into_iter(),
+            )),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    tree.add(SqsSourceFile {
+        path: PathBuf::from("/"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(
+                vec![(OsString::from("sbin"), sbin_inode)].into_iter(),
+            )),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    tree.finish()?;
 
     let mut tmp_file = File::open(tmp_path.path())?;
     let mut tmp_buf = Vec::new();
