@@ -147,16 +147,20 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
     let mut cmdline_buf = Vec::new();
     cmdline_file.read_to_end(&mut cmdline_buf)?;
 
-    let kernel_offset: u32 = buf
+    let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
         .position(|window| window == kernel_buf)
         .expect("can't find kernel (/vmlinuz) on boot partition")
-        .try_into()?;
-    let cmdline_offset: u32 = buf
+        / 512
+        + 1)
+    .try_into()?;
+    let cmdline_offset: u32 = (buf
         .windows(cmdline_buf.len())
         .position(|window| window == cmdline_buf)
         .expect("can't find cmdline (/cmdline.txt) on boot partition")
-        .try_into()?;
+        / 512
+        + 1)
+    .try_into()?;
 
     let kernel_lba = kernel_offset + 2048;
     let cmdline_lba = cmdline_offset + 2048;
