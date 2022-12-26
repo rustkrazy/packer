@@ -6,7 +6,7 @@ use squashfs_ng::write::{
     Source as SqsSource, SourceData as SqsSourceData, SourceFile as SqsSourceFile,
     TreeProcessor as SqsTreeProcessor,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, prelude::*, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
@@ -105,8 +105,8 @@ fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
     let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_START - 1)?;
     let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
 
-    write_boot(&mut boot_partition)?;
-    write_mbr(file)?;
+    let buf = write_boot(&mut boot_partition)?;
+    write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
 
     write_root(&mut root_partition)?;
 
@@ -122,7 +122,7 @@ fn partition_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
+fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
     let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
 
     fatfs::format_volume(&mut *partition, format_opts)?;
@@ -130,32 +130,26 @@ fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let fs = fatfs::FileSystem::new(partition, fatfs::FsOptions::new())?;
     let root_dir = fs.root_dir();
 
+    let mut buf = BTreeMap::new();
+
     let copy = ["vmlinuz", "cmdline.txt"];
     for path in copy {
         let mut file = root_dir.create_file(path)?;
 
-        reqwest::blocking::get(KERNEL_BASE.to_owned() + path)?
-            .error_for_status()?
-            .copy_to(&mut file)?;
+        let mut resp = reqwest::blocking::get(KERNEL_BASE.to_owned() + path)?.error_for_status()?;
+
+        buf.insert(path.to_owned(), Vec::new());
+        resp.copy_to(buf.get_mut(path).unwrap())?;
+        io::copy(&mut buf.get(path).unwrap().as_slice(), &mut file)?;
     }
 
     println!("Boot filesystem created successfully");
-    Ok(())
+    Ok(buf)
 }
 
-fn write_mbr(file: &mut File) -> anyhow::Result<()> {
+fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::Result<()> {
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
-
-    let mut kernel_buf = Vec::new();
-    let mut cmdline_buf = Vec::new();
-
-    reqwest::blocking::get(KERNEL_BASE.to_owned() + "vmlinuz")?
-        .error_for_status()?
-        .copy_to(&mut kernel_buf)?;
-    reqwest::blocking::get(KERNEL_BASE.to_owned() + "cmdline.txt")?
-        .error_for_status()?
-        .copy_to(&mut cmdline_buf)?;
 
     let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
