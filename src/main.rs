@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, prelude::*, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const MODE_DEVICE: u32 = 1 << 14;
 
@@ -19,6 +19,8 @@ const MODE_DEVICE: u32 = 1 << 14;
 const KiB: u32 = 1024;
 #[allow(non_upper_case_globals)]
 const MiB: u32 = 1024 * KiB;
+
+const KERNEL_BASE: &str = "https://github.com/rustkrazy/kernel/raw/master/";
 
 #[derive(Debug, Parser)]
 #[command(author = "The Rustkrazy Authors", version = "v0.1.0", about = "Generate a rustkrazy image.", long_about = None)]
@@ -131,9 +133,8 @@ fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let copy = ["vmlinuz", "cmdline.txt"];
     for path in copy {
         let mut file = root_dir.create_file(path)?;
-        let url = "https://github.com/rustkrazy/kernel/raw/master/".to_owned() + path;
 
-        reqwest::blocking::get(url)?
+        reqwest::blocking::get(KERNEL_BASE.to_owned() + path)?
             .error_for_status()?
             .copy_to(&mut file)?;
     }
@@ -146,15 +147,15 @@ fn write_mbr(file: &mut File) -> anyhow::Result<()> {
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
 
-    let kernel_dir = Path::new(".");
-
-    let mut kernel_file = File::open(kernel_dir.join("vmlinuz"))?;
     let mut kernel_buf = Vec::new();
-    kernel_file.read_to_end(&mut kernel_buf)?;
-
-    let mut cmdline_file = File::open(kernel_dir.join("cmdline.txt"))?;
     let mut cmdline_buf = Vec::new();
-    cmdline_file.read_to_end(&mut cmdline_buf)?;
+
+    reqwest::blocking::get(KERNEL_BASE.to_owned() + "vmlinuz")?
+        .error_for_status()?
+        .copy_to(&mut kernel_buf)?;
+    reqwest::blocking::get(KERNEL_BASE.to_owned() + "cmdline.txt")?
+        .error_for_status()?
+        .copy_to(&mut cmdline_buf)?;
 
     let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
