@@ -7,9 +7,8 @@ use squashfs_ng::write::{
     TreeProcessor as SqsTreeProcessor,
 };
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, prelude::*, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -121,15 +120,6 @@ fn partition_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn copy_file(dst: &mut fatfs::File<&mut StreamSlice<File>>, src: &mut File) -> anyhow::Result<()> {
-    let mut buf = Vec::new();
-
-    src.read_to_end(&mut buf)?;
-    dst.write_all(&buf)?;
-
-    Ok(())
-}
-
 fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
 
@@ -143,7 +133,7 @@ fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     let copy = ["vmlinuz", "cmdline.txt"];
     for path in copy {
         let mut file = root_dir.create_file(path)?;
-        copy_file(&mut file, &mut File::open(kernel_dir.join(path))?)?;
+        io::copy(&mut File::open(kernel_dir.join(path))?, &mut file)?;
     }
 
     println!("Boot filesystem created successfully");
@@ -210,42 +200,10 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
 
     let tree = SqsTreeProcessor::new(tmp_path.path())?;
 
-    let init_file = File::open("init")?;
-
-    let init_inode = tree.add(SqsSourceFile {
-        path: PathBuf::from("/sbin/init"),
-        content: SqsSource {
-            data: SqsSourceData::File(Box::new(init_file)),
-            uid: 0,
-            gid: 0,
-            mode: 0o755,
-            modified: 0,
-            xattrs: HashMap::new(),
-            flags: 0,
-        },
-    })?;
-
-    let sbin_inode = tree.add(SqsSourceFile {
-        path: PathBuf::from("/sbin"),
-        content: SqsSource {
-            data: SqsSourceData::Dir(Box::new(
-                vec![(OsString::from("init"), init_inode)].into_iter(),
-            )),
-            uid: 0,
-            gid: 0,
-            mode: 0o755,
-            modified: 0,
-            xattrs: HashMap::new(),
-            flags: 0,
-        },
-    })?;
-
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
         content: SqsSource {
-            data: SqsSourceData::Dir(Box::new(
-                vec![(OsString::from("sbin"), sbin_inode)].into_iter(),
-            )),
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
             uid: 0,
             gid: 0,
             mode: 0o755,
@@ -258,11 +216,9 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     tree.finish()?;
 
     let mut tmp_file = File::open(tmp_path.path())?;
-    let mut tmp_buf = Vec::new();
 
-    tmp_file.read_to_end(&mut tmp_buf)?;
     partition.seek(SeekFrom::Start(0))?;
-    partition.write_all(&tmp_buf)?;
+    io::copy(&mut tmp_file, partition)?;
 
     println!("Root filesystem created successfully");
     Ok(())
