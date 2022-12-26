@@ -125,15 +125,17 @@ fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
 
     fatfs::format_volume(&mut *partition, format_opts)?;
 
-    let kernel_dir = Path::new(".");
-
     let fs = fatfs::FileSystem::new(partition, fatfs::FsOptions::new())?;
     let root_dir = fs.root_dir();
 
     let copy = ["vmlinuz", "cmdline.txt"];
     for path in copy {
         let mut file = root_dir.create_file(path)?;
-        io::copy(&mut File::open(kernel_dir.join(path))?, &mut file)?;
+        let url = "https://github.com/rustkrazy/kernel/raw/master/".to_owned() + path;
+
+        reqwest::blocking::get(url)?
+            .error_for_status()?
+            .copy_to(&mut file)?;
     }
 
     println!("Boot filesystem created successfully");
