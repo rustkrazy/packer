@@ -214,9 +214,10 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
     let mut partition_buf = Vec::new();
     partition.read_to_end(&mut partition_buf)?;
 
-    let tmp_path = temp_file::with_contents(&partition_buf);
+    let mut tmp_file = tempfile::NamedTempFile::new()?;
+    tmp_file.write_all(&partition_buf)?;
 
-    let tree = SqsTreeProcessor::new(tmp_path.path())?;
+    let tree = SqsTreeProcessor::new(tmp_file.path())?;
 
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
@@ -233,8 +234,7 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
 
     tree.finish()?;
 
-    let mut tmp_file = File::open(tmp_path.path())?;
-
+    tmp_file.seek(SeekFrom::Start(0))?;
     partition.seek(SeekFrom::Start(0))?;
     io::copy(&mut tmp_file, partition)?;
 
