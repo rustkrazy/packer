@@ -10,11 +10,12 @@ use squashfs_ng::write::{
     TreeProcessor as SqsTreeProcessor,
 };
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{self, prelude::*, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MODE_DEVICE: u32 = 1 << 14;
 
@@ -198,10 +199,12 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
 fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow::Result<()> {
     println!("Installing crates: {:?}", crates);
 
+    let tmp_dir = tempfile::tempdir()?;
+
     if !crates.is_empty() {
         cargo::ops::install(
             &CargoConfig::default()?,
-            None, // root
+            Some(tmp_dir.path().to_str().unwrap()), // root (output dir)
             crates.iter().map(|v| (v.as_str(), None)).collect(),
             SourceId::crates_io(&CargoConfig::default()?)?,
             false, // from_cwd
@@ -219,10 +222,49 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
 
     let tree = SqsTreeProcessor::new(tmp_file.path())?;
 
+    let mut crate_inodes = Vec::new();
+    for pkg in &crates {
+        let crate_path = tmp_dir.path().join("bin/".to_owned() + pkg);
+        let crate_file = File::open(crate_path)?;
+
+        crate_inodes.push(tree.add(SqsSourceFile {
+            path: Path::new("/bin").join(pkg),
+            content: SqsSource {
+                data: SqsSourceData::File(Box::new(crate_file)),
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                modified: 0,
+                xattrs: HashMap::new(),
+                flags: 0,
+            },
+        })?);
+    }
+
+    let bin_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/bin"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(
+                crates
+                    .into_iter()
+                    .map(OsString::from)
+                    .zip(crate_inodes.into_iter()),
+            )),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
         content: SqsSource {
-            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            data: SqsSourceData::Dir(Box::new(
+                vec![(OsString::from("bin"), bin_inode)].into_iter(),
+            )),
             uid: 0,
             gid: 0,
             mode: 0o755,
