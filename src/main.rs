@@ -5,6 +5,7 @@ use cargo::util::config::Config as CargoConfig;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
+use reqwest::Url;
 use squashfs_ng::write::{
     Source as SqsSource, SourceData as SqsSourceData, SourceFile as SqsSourceFile,
     TreeProcessor as SqsTreeProcessor,
@@ -38,6 +39,12 @@ struct Args {
     /// Crates to install into the image.
     #[arg(short = 'c', long = "crates")]
     crates: Vec<String>,
+    /// Crates to install from git.
+    #[arg(short = 'g', long = "git")]
+    git: Vec<String>,
+    /// Init crate. rustkrazy_init is a reasonable default for most applications.
+    #[arg(short = 'i', long = "init")]
+    init: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -103,7 +110,13 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
     Ok(())
 }
 
-fn partition(file: &mut File, dev_size: u64, crates: Vec<String>) -> anyhow::Result<()> {
+fn partition(
+    file: &mut File,
+    dev_size: u64,
+    crates: Vec<String>,
+    git: Vec<String>,
+    init: String,
+) -> anyhow::Result<()> {
     const ROOT_START: u64 = (2048 * 512 + 256 * MiB) as u64;
     let root_end = ROOT_START + (dev_size as u32 - 2048 * 512 - 256 * MiB) as u64;
 
@@ -115,16 +128,22 @@ fn partition(file: &mut File, dev_size: u64, crates: Vec<String>) -> anyhow::Res
     let buf = write_boot(&mut boot_partition)?;
     write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
 
-    write_root(&mut root_partition, crates)?;
+    write_root(&mut root_partition, crates, git, init)?;
 
     Ok(())
 }
 
-fn partition_device(file: &mut File, overwrite: String, crates: Vec<String>) -> anyhow::Result<()> {
+fn partition_device(
+    file: &mut File,
+    overwrite: String,
+    crates: Vec<String>,
+    git: Vec<String>,
+    init: String,
+) -> anyhow::Result<()> {
     let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
-    partition(file, dev_size, crates)?;
+    partition(file, dev_size, crates, git, init)?;
 
     Ok(())
 }
@@ -196,7 +215,12 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
     Ok(())
 }
 
-fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow::Result<()> {
+fn write_root(
+    partition: &mut StreamSlice<File>,
+    crates: Vec<String>,
+    git: Vec<String>,
+    init: String,
+) -> anyhow::Result<()> {
     println!("Installing crates: {:?}", crates);
 
     let tmp_dir = tempfile::tempdir()?;
@@ -205,12 +229,33 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
         cargo::ops::install(
             &CargoConfig::default()?,
             Some(tmp_dir.path().to_str().unwrap()), // root (output dir)
-            crates.iter().map(|v| (v.as_str(), None)).collect(),
+            crates.iter().map(|pkg| (pkg.as_str(), None)).collect(),
             SourceId::crates_io(&CargoConfig::default()?)?,
             false, // from_cwd
             &CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?,
-            true, // force
-            true, // no_track
+            false, // force
+            true,  // no_track
+        )?;
+    }
+
+    for location in &git {
+        let url = Url::parse(location)?;
+        let pkg = url
+            .path_segments()
+            .unwrap()
+            .next_back()
+            .unwrap()
+            .trim_end_matches(".git");
+
+        cargo::ops::install(
+            &CargoConfig::default()?,
+            Some(tmp_dir.path().to_str().unwrap()), // root (output dir)
+            vec![(pkg, None)],
+            SourceId::from_url(&("git+".to_owned() + url.as_str()))?,
+            false, // from_cwd
+            &CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?,
+            false, // force
+            true,  // no_track
         )?;
     }
 
@@ -223,12 +268,39 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
     let tree = SqsTreeProcessor::new(tmp_file.path())?;
 
     let mut crate_inodes = Vec::new();
+
     for pkg in &crates {
         let crate_path = tmp_dir.path().join("bin/".to_owned() + pkg);
         let crate_file = File::open(crate_path)?;
 
         crate_inodes.push(tree.add(SqsSourceFile {
-            path: Path::new("/bin").join(pkg),
+            path: Path::new("/bin").join(if *pkg == init { "init" } else { pkg }),
+            content: SqsSource {
+                data: SqsSourceData::File(Box::new(crate_file)),
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                modified: 0,
+                xattrs: HashMap::new(),
+                flags: 0,
+            },
+        })?);
+    }
+
+    for location in &git {
+        let url = Url::parse(location)?;
+        let pkg = url
+            .path_segments()
+            .unwrap()
+            .next_back()
+            .unwrap()
+            .trim_end_matches(".git");
+
+        let crate_path = tmp_dir.path().join("bin/".to_owned() + pkg);
+        let crate_file = File::open(crate_path)?;
+
+        crate_inodes.push(tree.add(SqsSourceFile {
+            path: Path::new("/bin").join(if *pkg == init { "init" } else { pkg }),
             content: SqsSource {
                 data: SqsSourceData::File(Box::new(crate_file)),
                 uid: 0,
@@ -247,6 +319,13 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
             data: SqsSourceData::Dir(Box::new(
                 crates
                     .into_iter()
+                    .map(move |pkg| {
+                        if pkg == init {
+                            String::from("init")
+                        } else {
+                            pkg
+                        }
+                    })
                     .map(OsString::from)
                     .zip(crate_inodes.into_iter()),
             )),
@@ -284,18 +363,54 @@ fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow:
     Ok(())
 }
 
-fn overwrite_device(file: &mut File, overwrite: String, crates: Vec<String>) -> anyhow::Result<()> {
-    partition_device(file, overwrite, crates)?;
+fn overwrite_device(
+    file: &mut File,
+    overwrite: String,
+    crates: Vec<String>,
+    git: Vec<String>,
+    init: String,
+) -> anyhow::Result<()> {
+    partition_device(file, overwrite, crates, git, init)?;
     Ok(())
 }
 
-fn overwrite_file(file: &mut File, file_size: u64, crates: Vec<String>) -> anyhow::Result<()> {
-    partition(file, file_size, crates)?;
+fn overwrite_file(
+    file: &mut File,
+    file_size: u64,
+    crates: Vec<String>,
+    git: Vec<String>,
+    init: String,
+) -> anyhow::Result<()> {
+    partition(file, file_size, crates, git, init)?;
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    let init_in_crates = args.crates.iter().any(|pkg| *pkg == args.init);
+    let init_in_git = args.git.iter().any(|location| {
+        let url = match Url::parse(location) {
+            Ok(url) => url,
+            Err(e) => {
+                println!("Invalid git crate {}: {}", location, e);
+                return false;
+            }
+        };
+
+        let pkg = url
+            .path_segments()
+            .unwrap()
+            .next_back()
+            .unwrap()
+            .trim_end_matches(".git");
+
+        pkg == args.init
+    });
+
+    if !init_in_crates && !init_in_git {
+        bail!("Init must be listed in crates to install");
+    }
 
     let mut file = OpenOptions::new()
         .read(true)
@@ -304,10 +419,10 @@ fn main() -> anyhow::Result<()> {
         .open(args.overwrite.clone())?;
 
     if file.metadata()?.permissions().mode() & MODE_DEVICE != 0 {
-        overwrite_device(&mut file, args.overwrite, args.crates)
+        overwrite_device(&mut file, args.overwrite, args.crates, args.git, args.init)
     } else {
         match args.size {
-            Some(v) => overwrite_file(&mut file, v, args.crates),
+            Some(v) => overwrite_file(&mut file, v, args.crates, args.git, args.init),
             None => bail!("Files require --size to be specified"),
         }
     }
