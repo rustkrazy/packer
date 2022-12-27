@@ -1,4 +1,7 @@
 use anyhow::bail;
+use cargo::core::{compiler::CompileMode, SourceId};
+use cargo::ops::CompileOptions;
+use cargo::util::config::Config as CargoConfig;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
@@ -31,6 +34,9 @@ struct Args {
     /// Size of image file in bytes. Used if --overwrite is a file.
     #[arg(short = 'n', long = "size")]
     size: Option<u64>,
+    /// Crates to install into the image.
+    #[arg(short = 'c', long = "crates")]
+    crates: Vec<String>,
 }
 
 #[cfg(target_os = "linux")]
@@ -96,7 +102,7 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
     Ok(())
 }
 
-fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
+fn partition(file: &mut File, dev_size: u64, crates: Vec<String>) -> anyhow::Result<()> {
     const ROOT_START: u64 = (2048 * 512 + 256 * MiB) as u64;
     let root_end = ROOT_START + (dev_size as u32 - 2048 * 512 - 256 * MiB) as u64;
 
@@ -108,16 +114,16 @@ fn partition(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
     let buf = write_boot(&mut boot_partition)?;
     write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
 
-    write_root(&mut root_partition)?;
+    write_root(&mut root_partition, crates)?;
 
     Ok(())
 }
 
-fn partition_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
+fn partition_device(file: &mut File, overwrite: String, crates: Vec<String>) -> anyhow::Result<()> {
     let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
-    partition(file, dev_size)?;
+    partition(file, dev_size, crates)?;
 
     Ok(())
 }
@@ -189,7 +195,22 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
     Ok(())
 }
 
-fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
+fn write_root(partition: &mut StreamSlice<File>, crates: Vec<String>) -> anyhow::Result<()> {
+    println!("Installing crates: {:?}", crates);
+
+    if !crates.is_empty() {
+        cargo::ops::install(
+            &CargoConfig::default()?,
+            None, // root
+            crates.iter().map(|v| (v.as_str(), None)).collect(),
+            SourceId::crates_io(&CargoConfig::default()?)?,
+            false, // from_cwd
+            &CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?,
+            true, // force
+            true, // no_track
+        )?;
+    }
+
     let mut partition_buf = Vec::new();
     partition.read_to_end(&mut partition_buf)?;
 
@@ -221,13 +242,13 @@ fn write_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn overwrite_device(file: &mut File, overwrite: String) -> anyhow::Result<()> {
-    partition_device(file, overwrite)?;
+fn overwrite_device(file: &mut File, overwrite: String, crates: Vec<String>) -> anyhow::Result<()> {
+    partition_device(file, overwrite, crates)?;
     Ok(())
 }
 
-fn overwrite_file(file: &mut File, file_size: u64) -> anyhow::Result<()> {
-    partition(file, file_size)?;
+fn overwrite_file(file: &mut File, file_size: u64, crates: Vec<String>) -> anyhow::Result<()> {
+    partition(file, file_size, crates)?;
     Ok(())
 }
 
@@ -241,10 +262,10 @@ fn main() -> anyhow::Result<()> {
         .open(args.overwrite.clone())?;
 
     if file.metadata()?.permissions().mode() & MODE_DEVICE != 0 {
-        overwrite_device(&mut file, args.overwrite)
+        overwrite_device(&mut file, args.overwrite, args.crates)
     } else {
         match args.size {
-            Some(v) => overwrite_file(&mut file, v),
+            Some(v) => overwrite_file(&mut file, v, args.crates),
             None => bail!("Files require --size to be specified"),
         }
     }
