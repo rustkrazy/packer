@@ -1,5 +1,6 @@
 use anyhow::bail;
-use cargo::core::{compiler::CompileMode, SourceId};
+use cargo::core::compiler::{BuildConfig, CompileMode};
+use cargo::core::SourceId;
 use cargo::ops::CompileOptions;
 use cargo::util::config::Config as CargoConfig;
 use clap::Parser;
@@ -225,6 +226,16 @@ fn write_root(
 
     let tmp_dir = tempfile::tempdir()?;
 
+    let mut compile_opts = CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?;
+
+    compile_opts.build_config = BuildConfig::new(
+        &CargoConfig::default()?,
+        None,
+        false,
+        &[String::from("x86_64-unknown-linux-musl")],
+        CompileMode::Build,
+    )?;
+
     if !crates.is_empty() {
         cargo::ops::install(
             &CargoConfig::default()?,
@@ -232,7 +243,7 @@ fn write_root(
             crates.iter().map(|pkg| (pkg.as_str(), None)).collect(),
             SourceId::crates_io(&CargoConfig::default()?)?,
             false, // from_cwd
-            &CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?,
+            &compile_opts,
             false, // force
             true,  // no_track
         )?;
@@ -253,7 +264,7 @@ fn write_root(
             vec![(pkg, None)],
             SourceId::from_url(&("git+".to_owned() + url.as_str()))?,
             false, // from_cwd
-            &CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?,
+            &compile_opts,
             false, // force
             true,  // no_track
         )?;
