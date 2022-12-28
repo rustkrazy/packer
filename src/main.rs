@@ -223,6 +223,7 @@ fn write_root(
     init: String,
 ) -> anyhow::Result<()> {
     println!("Installing crates: {:?}", crates);
+    println!("Installing git: {:?}", git);
 
     let tmp_dir = tempfile::tempdir()?;
 
