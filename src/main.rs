@@ -227,8 +227,11 @@ fn write_root(
 
     let tmp_dir = tempfile::tempdir()?;
 
+    let mut cargo_opts = CargoConfig::default()?;
     let mut compile_opts = CompileOptions::new(&CargoConfig::default()?, CompileMode::Build)?;
 
+    // disable verbosity
+    cargo_opts.configure(0, false, None, false, false, false, &None, &[], &[])?;
     compile_opts.build_config = BuildConfig::new(
         &CargoConfig::default()?,
         None,
@@ -239,7 +242,7 @@ fn write_root(
 
     if !crates.is_empty() {
         cargo::ops::install(
-            &CargoConfig::default()?,
+            &cargo_opts,
             Some(tmp_dir.path().to_str().unwrap()), // root (output dir)
             crates.iter().map(|pkg| (pkg.as_str(), None)).collect(),
             SourceId::crates_io(&CargoConfig::default()?)?,
