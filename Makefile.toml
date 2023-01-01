@@ -4,3 +4,7 @@ args = ["-f", "bin", "-o", "boot.bin", "boot.asm"]
 
 [tasks.build]
 dependencies = ["boot"]
+
+[tasks.clean]
+command = "rm"
+args = ["-f", "boot.bin"]
