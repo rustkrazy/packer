@@ -422,6 +422,12 @@ fn overwrite_file(
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    match args.arch.as_str() {
+        "x86_64" => {}
+        "rpi" => {}
+        _ => bail!("invalid architecture (supported: x86_64 rpi)"),
+    }
+
     let init_in_crates = args.crates.iter().any(|pkg| *pkg == args.init);
     let init_in_git = args.git.iter().any(|location| {
         let url = match Url::parse(location) {
