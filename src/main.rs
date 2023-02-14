@@ -37,6 +37,9 @@ struct Args {
     /// Size of image file in bytes. Used if --overwrite is a file.
     #[arg(short = 'n', long = "size")]
     size: Option<u64>,
+    /// Architecture of the device running the image. Supported: x86_64 rpi.
+    #[arg(short = 'a', long = "architecture")]
+    arch: String,
     /// Crates to install into the image.
     #[arg(short = 'c', long = "crates")]
     crates: Vec<String>,
@@ -114,6 +117,7 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
 fn partition(
     file: &mut File,
     dev_size: u64,
+    arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
@@ -126,7 +130,7 @@ fn partition(
     let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_START - 1)?;
     let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
 
-    let buf = write_boot(&mut boot_partition)?;
+    let buf = write_boot(&mut boot_partition, arch)?;
     write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
 
     write_root(&mut root_partition, crates, git, init)?;
@@ -137,6 +141,7 @@ fn partition(
 fn partition_device(
     file: &mut File,
     overwrite: String,
+    arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
@@ -144,12 +149,21 @@ fn partition_device(
     let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
-    partition(file, dev_size, crates, git, init)?;
+    partition(file, dev_size, arch, crates, git, init)?;
 
     Ok(())
 }
 
-fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
+fn write_boot(
+    partition: &mut StreamSlice<File>,
+    arch: String,
+) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
+    match arch.as_str() {
+        "x86_64" => {}
+        "rpi" => {}
+        _ => bail!("invalid architecture (supported: x86_64 rpi)"),
+    }
+
     let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
 
     fatfs::format_volume(&mut *partition, format_opts)?;
@@ -159,15 +173,19 @@ fn write_boot(partition: &mut StreamSlice<File>) -> anyhow::Result<BTreeMap<Stri
 
     let mut buf = BTreeMap::new();
 
-    let copy = ["vmlinuz", "cmdline.txt"];
-    for path in copy {
-        let mut file = root_dir.create_file(path)?;
+    let mut copy = BTreeMap::new();
 
-        let mut resp = reqwest::blocking::get(KERNEL_BASE.to_owned() + path)?.error_for_status()?;
+    copy.insert("vmlinuz", format!("vmlinuz-{}", arch));
+    copy.insert("cmdline.txt", String::from("cmdline.txt"));
 
-        buf.insert(path.to_owned(), Vec::new());
-        resp.copy_to(buf.get_mut(path).unwrap())?;
-        io::copy(&mut buf.get(path).unwrap().as_slice(), &mut file)?;
+    for (dst, src) in copy {
+        let mut file = root_dir.create_file(dst)?;
+
+        let mut resp = reqwest::blocking::get(KERNEL_BASE.to_owned() + &src)?.error_for_status()?;
+
+        buf.insert(dst.to_owned(), Vec::new());
+        resp.copy_to(buf.get_mut(dst).unwrap())?;
+        io::copy(&mut buf.get(dst).unwrap().as_slice(), &mut file)?;
     }
 
     println!("Boot filesystem created successfully");
@@ -380,22 +398,24 @@ fn write_root(
 fn overwrite_device(
     file: &mut File,
     overwrite: String,
+    arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
-    partition_device(file, overwrite, crates, git, init)?;
+    partition_device(file, overwrite, arch, crates, git, init)?;
     Ok(())
 }
 
 fn overwrite_file(
     file: &mut File,
     file_size: u64,
+    arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
-    partition(file, file_size, crates, git, init)?;
+    partition(file, file_size, arch, crates, git, init)?;
     Ok(())
 }
 
@@ -433,10 +453,17 @@ fn main() -> anyhow::Result<()> {
         .open(args.overwrite.clone())?;
 
     if file.metadata()?.permissions().mode() & MODE_DEVICE != 0 {
-        overwrite_device(&mut file, args.overwrite, args.crates, args.git, args.init)
+        overwrite_device(
+            &mut file,
+            args.overwrite,
+            args.arch,
+            args.crates,
+            args.git,
+            args.init,
+        )
     } else {
         match args.size {
-            Some(v) => overwrite_file(&mut file, v, args.crates, args.git, args.init),
+            Some(v) => overwrite_file(&mut file, v, args.arch, args.crates, args.git, args.init),
             None => bail!("Files require --size to be specified"),
         }
     }
