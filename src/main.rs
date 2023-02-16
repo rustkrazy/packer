@@ -1,7 +1,7 @@
 use anyhow::bail;
 use cargo::core::compiler::{BuildConfig, CompileMode};
 use cargo::core::SourceId;
-use cargo::ops::CompileOptions;
+use cargo::ops::{CompileFilter, CompileOptions};
 use cargo::util::config::Config as CargoConfig;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
@@ -130,10 +130,10 @@ fn partition(
     let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_START - 1)?;
     let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
 
-    let buf = write_boot(&mut boot_partition, arch)?;
+    let buf = write_boot(&mut boot_partition, &arch)?;
     write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
 
-    write_root(&mut root_partition, crates, git, init)?;
+    write_root(&mut root_partition, &arch, crates, git, init)?;
 
     Ok(())
 }
@@ -156,9 +156,9 @@ fn partition_device(
 
 fn write_boot(
     partition: &mut StreamSlice<File>,
-    arch: String,
+    arch: &str,
 ) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
-    match arch.as_str() {
+    match arch {
         "x86_64" => {}
         "rpi" => {}
         _ => bail!("invalid architecture (supported: x86_64 rpi)"),
@@ -236,10 +236,19 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
 
 fn write_root(
     partition: &mut StreamSlice<File>,
+    arch: &str,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
+    let target = match arch {
+        "x86_64" => "x86_64",
+        "rpi" => "aarch64",
+        _ => bail!("invalid architecture (supported: x86_64 rpi)"),
+    };
+
+    let target_triple = format!("{}-unknown-linux-musl", target);
+
     println!("Installing crates: {:?}", crates);
     println!("Installing git: {:?}", git);
 
@@ -253,15 +262,26 @@ fn write_root(
         &CargoConfig::default()?,
         None,
         false,
-        &[String::from("x86_64-unknown-linux-musl")],
+        &[target_triple],
         CompileMode::Build,
     )?;
 
-    if !crates.is_empty() {
+    if arch == "rpi" {
+        let rustc_args = vec![
+            String::from("-C"),
+            String::from("linker=aarch64-linux-gnu-ld"),
+        ];
+
+        compile_opts.target_rustc_args = Some(rustc_args);
+    }
+
+    for crate_name in &crates {
+        compile_opts.filter = CompileFilter::single_bin(crate_name.to_owned());
+
         cargo::ops::install(
             &cargo_opts,
             Some(tmp_dir.path().to_str().unwrap()), // root (output dir)
-            crates.iter().map(|pkg| (pkg.as_str(), None)).collect(),
+            vec![(crate_name, None)],
             SourceId::crates_io(&CargoConfig::default()?)?,
             false, // from_cwd
             &compile_opts,
@@ -278,6 +298,8 @@ fn write_root(
             .next_back()
             .unwrap()
             .trim_end_matches(".git");
+
+        compile_opts.filter = CompileFilter::single_bin(pkg.to_owned());
 
         cargo::ops::install(
             &cargo_opts,
