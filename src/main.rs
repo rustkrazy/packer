@@ -27,6 +27,7 @@ const KiB: u32 = 1024;
 const MiB: u32 = 1024 * KiB;
 
 const KERNEL_BASE: &str = "https://github.com/rustkrazy/kernel/raw/master/";
+const FIRMWARE_BASE: &str = "https://github.com/gokrazy/firmware/raw/main/";
 
 #[derive(Debug, Parser)]
 #[command(author = "The Rustkrazy Authors", version = "v0.1.0", about = "Generate a rustkrazy image.", long_about = None)]
@@ -131,7 +132,7 @@ fn partition(
     let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
 
     let buf = write_boot(&mut boot_partition, &arch)?;
-    write_mbr(file, &buf["vmlinuz"], &buf["cmdline.txt"])?;
+    write_mbr(file, &buf["kernel.img"], &buf["cmdline.txt"])?;
 
     write_root(&mut root_partition, &arch, crates, git, init)?;
 
@@ -175,7 +176,7 @@ fn write_boot(
 
     let mut copy = BTreeMap::new();
 
-    copy.insert("vmlinuz", format!("vmlinuz-{}", arch));
+    copy.insert("kernel.img", format!("vmlinuz-{}", arch));
     copy.insert("cmdline.txt", String::from("cmdline.txt"));
 
     for (dst, src) in copy {
@@ -186,6 +187,36 @@ fn write_boot(
         buf.insert(dst.to_owned(), Vec::new());
         resp.copy_to(buf.get_mut(dst).unwrap())?;
         io::copy(&mut buf.get(dst).unwrap().as_slice(), &mut file)?;
+    }
+
+    let fwcopy = [
+        "bootcode.bin",
+        "fixup.dat",
+        "fixup4.dat",
+        "fixup4cd.dat",
+        "fixup4db.dat",
+        "fixup4x.dat",
+        "fixup_cd.dat",
+        "fixup_db.dat",
+        "fixup_x.dat",
+        "start.elf",
+        "start4.elf",
+        "start4cd.elf",
+        "start4db.elf",
+        "start4x.elf",
+        "start_cd.elf",
+        "start_db.elf",
+        "start_x.elf",
+    ];
+
+    for fw in fwcopy {
+        let mut file = root_dir.create_file(fw)?;
+
+        let mut resp = reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
+
+        let mut data = Vec::new();
+        resp.copy_to(&mut data)?;
+        io::copy(&mut data.as_slice(), &mut file)?;
     }
 
     println!("Boot filesystem created successfully");
