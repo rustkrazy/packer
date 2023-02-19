@@ -191,38 +191,42 @@ fn write_boot(
         io::copy(&mut buf.get(dst).unwrap().as_slice(), &mut file)?;
     }
 
-    println!("Installing RPi firmware...");
+    // We don't need the firmware to boot on other supported architectures.
+    if arch == "rpi" {
+        println!("Installing RPi firmware...");
 
-    let fwcopy = [
-        "bootcode.bin",
-        "fixup.dat",
-        "fixup4.dat",
-        "fixup4cd.dat",
-        "fixup4db.dat",
-        "fixup4x.dat",
-        "fixup_cd.dat",
-        "fixup_db.dat",
-        "fixup_x.dat",
-        "start.elf",
-        "start4.elf",
-        "start4cd.elf",
-        "start4db.elf",
-        "start4x.elf",
-        "start_cd.elf",
-        "start_db.elf",
-        "start_x.elf",
-    ];
+        let fwcopy = [
+            "bootcode.bin",
+            "fixup.dat",
+            "fixup4.dat",
+            "fixup4cd.dat",
+            "fixup4db.dat",
+            "fixup4x.dat",
+            "fixup_cd.dat",
+            "fixup_db.dat",
+            "fixup_x.dat",
+            "start.elf",
+            "start4.elf",
+            "start4cd.elf",
+            "start4db.elf",
+            "start4x.elf",
+            "start_cd.elf",
+            "start_db.elf",
+            "start_x.elf",
+        ];
 
-    for fw in fwcopy {
-        println!("Installing RPi firmware: {}", fw);
+        for fw in fwcopy {
+            println!("Installing RPi firmware: {}", fw);
 
-        let mut file = root_dir.create_file(fw)?;
+            let mut file = root_dir.create_file(fw)?;
 
-        let mut resp = reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
+            let mut resp =
+                reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
 
-        let mut data = Vec::new();
-        resp.copy_to(&mut data)?;
-        io::copy(&mut data.as_slice(), &mut file)?;
+            let mut data = Vec::new();
+            resp.copy_to(&mut data)?;
+            io::copy(&mut data.as_slice(), &mut file)?;
+        }
     }
 
     println!("Boot filesystem created successfully");
