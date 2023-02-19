@@ -172,6 +172,8 @@ fn write_boot(
     let fs = fatfs::FileSystem::new(partition, fatfs::FsOptions::new())?;
     let root_dir = fs.root_dir();
 
+    println!("Installing kernel...");
+
     let mut buf = BTreeMap::new();
 
     let mut copy = BTreeMap::new();
@@ -188,6 +190,8 @@ fn write_boot(
         resp.copy_to(buf.get_mut(dst).unwrap())?;
         io::copy(&mut buf.get(dst).unwrap().as_slice(), &mut file)?;
     }
+
+    println!("Installing RPi firmware...");
 
     let fwcopy = [
         "bootcode.bin",
@@ -210,6 +214,8 @@ fn write_boot(
     ];
 
     for fw in fwcopy {
+        println!("Installing RPi firmware: {}", fw);
+
         let mut file = root_dir.create_file(fw)?;
 
         let mut resp = reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
