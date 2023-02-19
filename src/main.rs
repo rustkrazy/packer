@@ -14,7 +14,7 @@ use squashfs_ng::write::{
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
-use std::io::{self, prelude::*, SeekFrom};
+use std::io::{self, prelude::*};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -223,7 +223,7 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
     bootloader_file.read_to_end(&mut bootloader_buf)?;
     bootloader_buf.resize(432, 0);
 
-    file.seek(SeekFrom::Start(0))?;
+    file.rewind()?;
     file.write_all(&bootloader_buf[..432])?;
     file.write_all(&bootloader_params)?;
 
@@ -409,8 +409,8 @@ fn write_root(
 
     tree.finish()?;
 
-    tmp_file.seek(SeekFrom::Start(0))?;
-    partition.seek(SeekFrom::Start(0))?;
+    tmp_file.rewind()?;
+    partition.rewind()?;
     io::copy(&mut tmp_file, partition)?;
 
     println!("Root filesystem created successfully");
