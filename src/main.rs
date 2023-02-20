@@ -511,7 +511,7 @@ fn write_root(
     partition.rewind()?;
     io::copy(&mut tmp_file, partition)?;
 
-    println!("Root filesystem created successfully");
+    println!("Root filesystem A created successfully");
     Ok(())
 }
 
