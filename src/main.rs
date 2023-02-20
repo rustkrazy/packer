@@ -335,13 +335,17 @@ fn write_root(
     }
 
     for location in &git {
-        let url = Url::parse(location)?;
-        let pkg = url
-            .path_segments()
-            .unwrap()
-            .next_back()
-            .unwrap()
-            .trim_end_matches(".git");
+        let mut split = location.split('%');
+
+        let url = Url::parse(split.next().unwrap())?;
+
+        let pkg = split.next().unwrap_or(
+            url.path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap()
+                .trim_end_matches(".git"),
+        );
 
         compile_opts.filter = CompileFilter::single_bin(pkg.to_owned());
 
@@ -386,13 +390,17 @@ fn write_root(
     }
 
     for location in &git {
-        let url = Url::parse(location)?;
-        let pkg = url
-            .path_segments()
-            .unwrap()
-            .next_back()
-            .unwrap()
-            .trim_end_matches(".git");
+        let mut split = location.split('%');
+
+        let url = Url::parse(split.next().unwrap())?;
+
+        let pkg = split.next().unwrap_or(
+            url.path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap()
+                .trim_end_matches(".git"),
+        );
 
         let crate_path = tmp_dir.path().join("bin/".to_owned() + pkg);
         let crate_file = File::open(crate_path)?;
@@ -496,7 +504,9 @@ fn main() -> anyhow::Result<()> {
 
     let init_in_crates = args.crates.iter().any(|pkg| *pkg == args.init);
     let init_in_git = args.git.iter().any(|location| {
-        let url = match Url::parse(location) {
+        let mut split = location.split('%');
+
+        let url = match Url::parse(split.next().unwrap()) {
             Ok(url) => url,
             Err(e) => {
                 println!("Invalid git crate {}: {}", location, e);
@@ -504,12 +514,13 @@ fn main() -> anyhow::Result<()> {
             }
         };
 
-        let pkg = url
-            .path_segments()
-            .unwrap()
-            .next_back()
-            .unwrap()
-            .trim_end_matches(".git");
+        let pkg = split.next().unwrap_or(
+            url.path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap()
+                .trim_end_matches(".git"),
+        );
 
         pkg == args.init
     });
