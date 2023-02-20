@@ -459,11 +459,28 @@ fn write_root(
         },
     })?;
 
+    let boot_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/boot"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
         content: SqsSource {
             data: SqsSourceData::Dir(Box::new(
-                vec![(OsString::from("bin"), bin_inode)].into_iter(),
+                vec![
+                    (OsString::from("bin"), bin_inode),
+                    (OsString::from("boot"), boot_inode),
+                ]
+                .into_iter(),
             )),
             uid: 0,
             gid: 0,
