@@ -373,11 +373,8 @@ fn write_root(
         )?;
     }
 
-    let mut partition_buf = Vec::new();
-    partition.read_to_end(&mut partition_buf)?;
-
     let mut tmp_file = tempfile::NamedTempFile::new()?;
-    tmp_file.write_all(&partition_buf)?;
+    io::copy(partition, &mut tmp_file)?;
 
     let tree = SqsTreeProcessor::new(tmp_file.path())?;
 
