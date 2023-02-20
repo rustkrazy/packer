@@ -27,7 +27,7 @@ const KiB: u32 = 1024;
 const MiB: u32 = 1024 * KiB;
 
 const KERNEL_BASE: &str = "https://github.com/rustkrazy/kernel/raw/master/";
-const FIRMWARE_BASE: &str = "https://github.com/gokrazy/firmware/raw/main/";
+const FIRMWARE_BASE: &str = "https://github.com/rustkrazy/firmware/raw/master/";
 
 #[derive(Debug, Parser)]
 #[command(author = "The Rustkrazy Authors", version = "v0.1.0", about = "Generate a rustkrazy image.", long_about = None)]
