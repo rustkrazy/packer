@@ -240,7 +240,7 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
     let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
         .position(|window| window == kernel_buf)
-        .expect("can't find kernel (/vmlinuz) on boot partition")
+        .expect("can't find kernel (/kernel.img) on boot partition")
         / 512
         + 1)
     .try_into()?;
@@ -270,7 +270,10 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
 
     println!("MBR written successfully");
     println!("MBR summary:");
-    println!("  LBA: vmlinuz={}, cmdline.txt={}", kernel_lba, cmdline_lba);
+    println!(
+        "  LBA: kernel.img={}, cmdline.txt={}",
+        kernel_lba, cmdline_lba
+    );
 
     Ok(())
 }
