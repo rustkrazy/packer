@@ -146,7 +146,7 @@ fn partition(
     write_mbr(file, &buf["kernel.img"], &buf["cmdline.txt"])?;
 
     write_root(&mut root_partition_a, &arch, &crates, &git, &init)?;
-    write_root(&mut root_partition_b, &arch, &crates, &git, &init)?;
+    write_empty_root(&mut root_partition_b)?;
 
     Ok(())
 }
@@ -512,6 +512,81 @@ fn write_root(
     io::copy(&mut tmp_file, partition)?;
 
     println!("Root filesystem created successfully");
+    Ok(())
+}
+
+fn write_empty_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
+    let mut tmp_file = tempfile::NamedTempFile::new()?;
+    io::copy(partition, &mut tmp_file)?;
+
+    let tree = SqsTreeProcessor::new(tmp_file.path())?;
+
+    let bin_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/bin"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    let dev_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/dev"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    let boot_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/boot"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    tree.add(SqsSourceFile {
+        path: PathBuf::from("/"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(
+                vec![
+                    (OsString::from("bin"), bin_inode),
+                    (OsString::from("dev"), dev_inode),
+                    (OsString::from("boot"), boot_inode),
+                ]
+                .into_iter(),
+            )),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    tree.finish()?;
+
+    tmp_file.rewind()?;
+    partition.rewind()?;
+    io::copy(&mut tmp_file, partition)?;
+
+    println!("Root filesystem B created successfully");
     Ok(())
 }
 
