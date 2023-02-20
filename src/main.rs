@@ -76,7 +76,6 @@ fn device_size(file: &File, path: String) -> anyhow::Result<u64> {
 }
 
 fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<()> {
-    const NOPART: &[u8] = &[0; 16];
     const INACTIVE: &[u8] = &[0x00];
     const ACTIVE: &[u8] = &[0x80];
     const INVALID_CHS: &[u8] = &[0xFF, 0xFF, 0xFE]; // Causes sector values to be used
@@ -95,19 +94,29 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
     file.write_all(&2048_u32.to_le_bytes())?; // Start at sector 2048
     file.write_all(&(256 * MiB / 512).to_le_bytes())?; // 256 MiB in size
 
-    // Partition 2 rootfs
+    // Partition 2: rootfs A
     file.write_all(INACTIVE)?;
     file.write_all(INVALID_CHS)?;
     file.write_all(SQUASHFS)?;
     file.write_all(INVALID_CHS)?;
     file.write_all(&(2048 + 256 * MiB / 512).to_le_bytes())?;
-    file.write_all(&(dev_size as u32 / 512 - 2048 - 256 * MiB / 512).to_le_bytes())?;
+    file.write_all(&(256 * MiB / 512).to_le_bytes())?;
 
-    // Partition 3 (unused)
-    file.write_all(NOPART)?;
+    // Partition 3: rootfs B
+    file.write_all(INACTIVE)?;
+    file.write_all(INVALID_CHS)?;
+    file.write_all(SQUASHFS)?;
+    file.write_all(INVALID_CHS)?;
+    file.write_all(&(2048 + 2 * (256 * MiB / 512)).to_le_bytes())?;
+    file.write_all(&(256 * MiB / 512).to_le_bytes())?;
 
-    // Partition 4 (unused)
-    file.write_all(NOPART)?;
+    // Partition 4: data
+    file.write_all(INACTIVE)?;
+    file.write_all(INVALID_CHS)?;
+    file.write_all(LINUX)?;
+    file.write_all(INVALID_CHS)?;
+    file.write_all(&(2048 + 3 * (256 * MiB / 512)).to_le_bytes())?;
+    file.write_all(&(dev_size as u32 / 512 - 2048 - 3 * (256 * MiB / 512)).to_le_bytes())?;
 
     file.write_all(SIGNATURE)?;
 
@@ -123,18 +132,21 @@ fn partition(
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
-    const ROOT_START: u64 = (2048 * 512 + 256 * MiB) as u64;
-    let root_end = ROOT_START + (dev_size as u32 - 2048 * 512 - 256 * MiB) as u64;
+    const ROOT_A_START: u64 = (2048 * 512 + 256 * MiB) as u64;
+    let root_a_end = ROOT_A_START + (256 * MiB) as u64;
+    let root_b_end = root_a_end + (256 * MiB) as u64;
 
     write_mbr_partition_table(file, dev_size)?;
 
-    let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_START - 1)?;
-    let mut root_partition = StreamSlice::new(file.try_clone()?, ROOT_START, root_end)?;
+    let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_A_START - 1)?;
+    let mut root_partition_a = StreamSlice::new(file.try_clone()?, ROOT_A_START, root_a_end - 1)?;
+    let mut root_partition_b = StreamSlice::new(file.try_clone()?, root_a_end, root_b_end - 1)?;
 
     let buf = write_boot(&mut boot_partition, &arch)?;
     write_mbr(file, &buf["kernel.img"], &buf["cmdline.txt"])?;
 
-    write_root(&mut root_partition, &arch, crates, git, init)?;
+    write_root(&mut root_partition_a, &arch, &crates, &git, &init)?;
+    write_root(&mut root_partition_b, &arch, &crates, &git, &init)?;
 
     Ok(())
 }
@@ -281,9 +293,9 @@ fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::
 fn write_root(
     partition: &mut StreamSlice<File>,
     arch: &str,
-    crates: Vec<String>,
-    git: Vec<String>,
-    init: String,
+    crates: &Vec<String>,
+    git: &Vec<String>,
+    init: &str,
 ) -> anyhow::Result<()> {
     let target = match arch {
         "x86_64" => "x86_64",
@@ -319,7 +331,7 @@ fn write_root(
         compile_opts.target_rustc_args = Some(rustc_args);
     }
 
-    for crate_name in &crates {
+    for crate_name in crates {
         compile_opts.filter = CompileFilter::single_bin(crate_name.to_owned());
 
         cargo::ops::install(
@@ -334,7 +346,7 @@ fn write_root(
         )?;
     }
 
-    for location in &git {
+    for location in git {
         let mut split = location.split('%');
 
         let url = Url::parse(split.next().unwrap())?;
@@ -371,12 +383,12 @@ fn write_root(
 
     let mut crate_inodes = Vec::new();
 
-    for pkg in &crates {
+    for pkg in crates {
         let crate_path = tmp_dir.path().join("bin/".to_owned() + pkg);
         let crate_file = File::open(crate_path)?;
 
         crate_inodes.push(tree.add(SqsSourceFile {
-            path: Path::new("/bin").join(if *pkg == init { "init" } else { pkg }),
+            path: Path::new("/bin").join(if pkg == init { "init" } else { pkg }),
             content: SqsSource {
                 data: SqsSourceData::File(Box::new(crate_file)),
                 uid: 0,
@@ -389,7 +401,7 @@ fn write_root(
         })?);
     }
 
-    for location in &git {
+    for location in git {
         let mut split = location.split('%');
 
         let url = Url::parse(split.next().unwrap())?;
@@ -406,7 +418,7 @@ fn write_root(
         let crate_file = File::open(crate_path)?;
 
         crate_inodes.push(tree.add(SqsSourceFile {
-            path: Path::new("/bin").join(if *pkg == init { "init" } else { pkg }),
+            path: Path::new("/bin").join(if pkg == init { "init" } else { pkg }),
             content: SqsSource {
                 data: SqsSourceData::File(Box::new(crate_file)),
                 uid: 0,
@@ -419,14 +431,17 @@ fn write_root(
         })?);
     }
 
+    let init2 = String::from(init);
+
     let bin_inode = tree.add(SqsSourceFile {
         path: PathBuf::from("/bin"),
         content: SqsSource {
             data: SqsSourceData::Dir(Box::new(
                 crates
+                    .clone()
                     .into_iter()
                     .map(move |pkg| {
-                        if pkg == init {
+                        if pkg == init2 {
                             String::from("init")
                         } else {
                             pkg
