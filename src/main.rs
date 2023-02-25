@@ -12,12 +12,13 @@ use squashfs_ng::write::{
     TreeProcessor as SqsTreeProcessor,
 };
 use std::collections::{BTreeMap, HashMap};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
 use std::io::{self, prelude::*};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 const MODE_DEVICE: u32 = 1 << 14;
 
@@ -135,18 +136,21 @@ fn partition(
     const ROOT_A_START: u64 = (2048 * 512 + 256 * MiB) as u64;
     let root_a_end = ROOT_A_START + (256 * MiB) as u64;
     let root_b_end = root_a_end + (256 * MiB) as u64;
+    let data_end = root_b_end + (dev_size / 512 - 2048 - 3 * (256 * MiB / 512) as u64);
 
     write_mbr_partition_table(file, dev_size)?;
 
     let mut boot_partition = StreamSlice::new(file.try_clone()?, 2048 * 512, ROOT_A_START - 1)?;
     let mut root_partition_a = StreamSlice::new(file.try_clone()?, ROOT_A_START, root_a_end - 1)?;
     let mut root_partition_b = StreamSlice::new(file.try_clone()?, root_a_end, root_b_end - 1)?;
+    let mut data_partition = StreamSlice::new(file.try_clone()?, root_b_end, data_end - 1)?;
 
     let buf = write_boot(&mut boot_partition, &arch)?;
     write_mbr(file, &buf["kernel.img"], &buf["cmdline.txt"])?;
 
     write_root(&mut root_partition_a, &arch, &crates, &git, &init)?;
     write_empty_root(&mut root_partition_b)?;
+    format_ext4(&mut data_partition)?;
 
     Ok(())
 }
@@ -587,6 +591,21 @@ fn write_empty_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn format_ext4(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
+    let mut tmp_file = tempfile::NamedTempFile::new()?;
+    io::copy(partition, &mut tmp_file)?;
+
+    let mut mkfs = no_stdin("mkfs.ext4");
+    mkfs.arg(tmp_file.path());
+
+    if !mkfs.spawn()?.wait()?.success() {
+        bail!("mkfs.ext4 failed");
+    }
+
+    println!("Data filesystem created successfully");
+    Ok(())
+}
+
 fn overwrite_device(
     file: &mut File,
     overwrite: String,
@@ -668,4 +687,11 @@ fn main() -> anyhow::Result<()> {
             None => bail!("Files require --size to be specified"),
         }
     }
+}
+
+fn no_stdin<S: AsRef<OsStr>>(program: S) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.stdin(Stdio::null());
+
+    cmd
 }
