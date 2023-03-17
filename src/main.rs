@@ -616,6 +616,10 @@ fn format_ext4(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
         bail!("mkfs.ext4 failed");
     }
 
+    tmp_file.rewind()?;
+    partition.rewind()?;
+    io::copy(&mut tmp_file, partition)?;
+
     println!("Data filesystem created successfully");
     Ok(())
 }
