@@ -499,6 +499,32 @@ fn write_root(
         },
     })?;
 
+    let proc_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/proc"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    let tmp_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/tmp"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
         content: SqsSource {
@@ -508,6 +534,8 @@ fn write_root(
                     (OsString::from("dev"), dev_inode),
                     (OsString::from("boot"), boot_inode),
                     (OsString::from("data"), data_inode),
+                    (OsString::from("proc"), proc_inode),
+                    (OsString::from("tmp"), tmp_inode),
                 ]
                 .into_iter(),
             )),
@@ -588,6 +616,32 @@ fn write_empty_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
         },
     })?;
 
+    let proc_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/proc"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
+    let tmp_inode = tree.add(SqsSourceFile {
+        path: PathBuf::from("/tmp"),
+        content: SqsSource {
+            data: SqsSourceData::Dir(Box::new(Vec::new().into_iter())),
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            modified: 0,
+            xattrs: HashMap::new(),
+            flags: 0,
+        },
+    })?;
+
     tree.add(SqsSourceFile {
         path: PathBuf::from("/"),
         content: SqsSource {
@@ -597,6 +651,8 @@ fn write_empty_root(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
                     (OsString::from("dev"), dev_inode),
                     (OsString::from("boot"), boot_inode),
                     (OsString::from("data"), data_inode),
+                    (OsString::from("proc"), proc_inode),
+                    (OsString::from("tmp"), tmp_inode),
                 ]
                 .into_iter(),
             )),
