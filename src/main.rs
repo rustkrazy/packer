@@ -3,6 +3,7 @@ use cargo::core::compiler::{BuildConfig, CompileMode};
 use cargo::core::SourceId;
 use cargo::ops::{CompileFilter, CompileOptions};
 use cargo::util::config::Config as CargoConfig;
+use cargo::util::interning::InternedString;
 use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
@@ -325,6 +326,7 @@ fn write_root(
         &[target_triple],
         CompileMode::Build,
     )?;
+    compile_opts.build_config.requested_profile = InternedString::new("release");
 
     if arch == "rpi" {
         let rustc_args = vec![
