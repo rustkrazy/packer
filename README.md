@@ -19,13 +19,14 @@ For the packer to work you need to install the following packages:
 * nasm
 * squashfs-tools-ng
 * musl
+* gcc
 * ld
 * (optional) clang
 * (optional) kernel-headers-musl
 
 If you want to build images for the Raspberry Pi, the aarch64 versions
 of the musl related packages (musl itself and optionally clang and the kernel headers)
-and the linker (ld becomes aarch64-linux-gnu-binutils)
+and the compiler and linker (gcc becomes aarch64-linux-musl, ld becomes aarch64-linux-gnu-binutils)
 are required as well.
 
 Clang and the kernel headers are needed for some small sys crates to compile.
