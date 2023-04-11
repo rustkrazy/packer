@@ -147,7 +147,12 @@ fn partition(
     let mut data_partition = StreamSlice::new(file.try_clone()?, root_b_end, data_end - 1)?;
 
     let buf = write_boot(&mut boot_partition, &arch)?;
-    write_mbr(file, &buf["kernel.img"], &buf["cmdline.txt"])?;
+    write_mbr(
+        file,
+        &mut boot_partition,
+        &buf["kernel.img"],
+        &buf["cmdline.txt"],
+    )?;
 
     write_root(&mut root_partition_a, &arch, &crates, &git, &init)?;
     write_empty_root(&mut root_partition_b)?;
@@ -250,9 +255,14 @@ fn write_boot(
     Ok(buf)
 }
 
-fn write_mbr(file: &mut File, kernel_buf: &[u8], cmdline_buf: &[u8]) -> anyhow::Result<()> {
+fn write_mbr(
+    file: &mut File,
+    boot_partition: &mut StreamSlice<File>,
+    kernel_buf: &[u8],
+    cmdline_buf: &[u8],
+) -> anyhow::Result<()> {
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf)?;
+    boot_partition.read_to_end(&mut buf)?;
 
     let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
