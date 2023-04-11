@@ -214,6 +214,7 @@ fn write_boot(
 
     copy.insert("kernel.img", format!("vmlinuz-{}", arch));
     copy.insert("cmdline.txt", String::from("cmdline.txt"));
+    copy.insert("config.txt", String::from("config.txt"));
 
     for (dst, src) in copy {
         let mut file = root_dir.create_file(dst)?;
