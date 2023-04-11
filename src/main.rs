@@ -228,6 +228,26 @@ fn write_boot(
 
     // We don't need the firmware to boot on other supported architectures.
     if arch == "rpi" {
+        println!("Installing RPi dtbs...");
+
+        let dtbcopy = [
+            "bcm2710-rpi-3-b.dtb",
+            "bcm2710-rpi-3-b-plus.dtb",
+            "bcm2710-rpi-cm3.dtb",
+            "bcm2711-rpi-4-b.dtb",
+            "bcm2710-rpi-zero-2-w.dtb",
+        ];
+
+        for dtb in dtbcopy {
+            println!("Installing RPi dtb: {}", dtb);
+
+            let mut file = root_dir.create_file(dtb)?;
+
+            let mut resp =
+                reqwest::blocking::get(KERNEL_BASE.to_owned() + dtb)?.error_for_status()?;
+            resp.copy_to(&mut file)?;
+        }
+
         println!("Installing RPi firmware...");
 
         let fwcopy = [
@@ -257,7 +277,6 @@ fn write_boot(
 
             let mut resp =
                 reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
-
             resp.copy_to(&mut file)?;
         }
     }
