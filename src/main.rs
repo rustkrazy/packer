@@ -150,7 +150,7 @@ fn partition(
     write_mbr(
         file,
         &mut boot_partition,
-        &buf["kernel.img"],
+        &buf["vmlinuz"],
         &buf["cmdline.txt"],
     )?;
 
@@ -212,7 +212,7 @@ fn write_boot(
 
     let mut copy = BTreeMap::new();
 
-    copy.insert("kernel.img", format!("vmlinuz-{}", arch));
+    copy.insert("vmlinuz", format!("vmlinuz-{}", arch));
     copy.insert("cmdline.txt", String::from("cmdline.txt"));
     copy.insert("config.txt", String::from("config.txt"));
 
@@ -278,7 +278,7 @@ fn write_mbr(
     let kernel_offset: u32 = (buf
         .windows(kernel_buf.len())
         .position(|window| window == kernel_buf)
-        .expect("can't find kernel (/kernel.img) on boot partition")
+        .expect("can't find kernel (/vmlinuz) on boot partition")
         / 512
         + 1)
     .try_into()?;
@@ -308,10 +308,7 @@ fn write_mbr(
 
     println!("MBR written successfully");
     println!("MBR summary:");
-    println!(
-        "  LBA: kernel.img={}, cmdline.txt={}",
-        kernel_lba, cmdline_lba
-    );
+    println!("  LBA: vmlinuz={}, cmdline.txt={}", kernel_lba, cmdline_lba);
 
     Ok(())
 }
