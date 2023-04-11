@@ -15,7 +15,7 @@ use squashfs_ng::write::{
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
-use std::io::{self, prelude::*};
+use std::io::{self, prelude::*, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -186,6 +186,18 @@ fn write_boot(
         "rpi" => {}
         _ => bail!("invalid architecture (supported: x86_64 rpi)"),
     }
+
+    println!("Zeroing boot partition...");
+
+    partition.seek(SeekFrom::End(0))?;
+    let partition_len = partition.stream_position()?;
+
+    let mut zero = Vec::new();
+    zero.resize(partition_len as usize, 0);
+
+    partition.rewind()?;
+    partition.write_all(&zero)?;
+    partition.rewind()?;
 
     let format_opts = FormatVolumeOptions::new().fat_type(FatType::Fat32);
 
