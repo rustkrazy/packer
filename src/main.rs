@@ -245,9 +245,7 @@ fn write_boot(
             let mut resp =
                 reqwest::blocking::get(FIRMWARE_BASE.to_owned() + fw)?.error_for_status()?;
 
-            let mut data = Vec::new();
-            resp.copy_to(&mut data)?;
-            io::copy(&mut data.as_slice(), &mut file)?;
+            resp.copy_to(&mut file)?;
         }
     }
 
