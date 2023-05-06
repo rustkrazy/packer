@@ -8,6 +8,7 @@ use clap::Parser;
 use fatfs::{FatType, FormatVolumeOptions};
 use fscommon::StreamSlice;
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
 use squashfs_ng::write::{
     Source as SqsSource, SourceData as SqsSourceData, SourceFile as SqsSourceFile,
     TreeProcessor as SqsTreeProcessor,
@@ -40,6 +41,9 @@ struct Args {
     /// Size of image file in bytes. Used if --overwrite is a file.
     #[arg(short = 'n', long = "size")]
     size: Option<u64>,
+    /// Output location of the instance file.
+    #[arg(short = 'u', long = "instance")]
+    instance: String,
     /// Architecture of the device running the image. Supported: x86_64 rpi.
     #[arg(short = 'a', long = "architecture")]
     arch: String,
@@ -52,6 +56,12 @@ struct Args {
     /// Init crate. rustkrazy_init is a reasonable default for most applications.
     #[arg(short = 'i', long = "init")]
     init: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Instance {
+    size: u64,
+    arch: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -129,6 +139,7 @@ fn write_mbr_partition_table(file: &mut File, dev_size: u64) -> anyhow::Result<(
 fn partition(
     file: &mut File,
     dev_size: u64,
+    instance: String,
     arch: String,
     crates: Vec<String>,
     git: Vec<String>,
@@ -158,12 +169,15 @@ fn partition(
     write_empty_root(&mut root_partition_b)?;
     format_ext4(&mut data_partition)?;
 
+    write_instance(&instance, dev_size, arch)?;
+
     Ok(())
 }
 
 fn partition_device(
     file: &mut File,
     overwrite: String,
+    instance: String,
     arch: String,
     crates: Vec<String>,
     git: Vec<String>,
@@ -172,7 +186,7 @@ fn partition_device(
     let dev_size = device_size(file, overwrite)?;
     println!("Destination holds {} bytes", dev_size);
 
-    partition(file, dev_size, arch, crates, git, init)?;
+    partition(file, dev_size, instance, arch, crates, git, init)?;
 
     Ok(())
 }
@@ -761,27 +775,38 @@ fn format_ext4(partition: &mut StreamSlice<File>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn write_instance(instance: &str, size: u64, arch: String) -> anyhow::Result<()> {
+    let info = Instance { size, arch };
+
+    let mut file = File::create(instance)?;
+    serde_json::to_writer_pretty(&mut file, &info)?;
+
+    Ok(())
+}
+
 fn overwrite_device(
     file: &mut File,
     overwrite: String,
+    instance: String,
     arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
-    partition_device(file, overwrite, arch, crates, git, init)?;
+    partition_device(file, overwrite, instance, arch, crates, git, init)?;
     Ok(())
 }
 
 fn overwrite_file(
     file: &mut File,
     file_size: u64,
+    instance: String,
     arch: String,
     crates: Vec<String>,
     git: Vec<String>,
     init: String,
 ) -> anyhow::Result<()> {
-    partition(file, file_size, arch, crates, git, init)?;
+    partition(file, file_size, instance, arch, crates, git, init)?;
     Ok(())
 }
 
@@ -831,6 +856,7 @@ fn main() -> anyhow::Result<()> {
         overwrite_device(
             &mut file,
             args.overwrite,
+            args.instance,
             args.arch,
             args.crates,
             args.git,
@@ -838,7 +864,15 @@ fn main() -> anyhow::Result<()> {
         )
     } else {
         match args.size {
-            Some(v) => overwrite_file(&mut file, v, args.arch, args.crates, args.git, args.init),
+            Some(v) => overwrite_file(
+                &mut file,
+                v,
+                args.instance,
+                args.arch,
+                args.crates,
+                args.git,
+                args.init,
+            ),
             None => bail!("Files require --size to be specified"),
         }
     }
