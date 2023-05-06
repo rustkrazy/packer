@@ -42,7 +42,7 @@ struct Args {
     #[arg(short = 'n', long = "size")]
     size: Option<u64>,
     /// Output location of the instance file.
-    #[arg(short = 'u', long = "instance")]
+    #[arg(short = 'm', long = "instance")]
     instance: String,
     /// Architecture of the device running the image. Supported: x86_64 rpi.
     #[arg(short = 'a', long = "architecture")]
